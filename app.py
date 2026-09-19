@@ -6,6 +6,43 @@ from tkinter import filedialog
 from pathlib import Path
 from watcher import FolderWatcher
 from organizer_core import EXTENSION_MAP, organize_directory
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+def setup_linux_desktop_shortcut():
+    """Automatically registers the application in Linux Start Menu on first launch."""
+    if sys.platform.startswith("linux"):
+        desktop_dir = Path.home() / ".local" / "share" / "applications"
+        desktop_file = desktop_dir / "file-organizer.desktop"
+
+        # Check if running as PyInstaller standalone binary
+        if getattr(sys, 'frozen', False):
+            exec_path = os.path.abspath(sys.executable)
+        else:
+            exec_path = os.path.abspath(__file__)
+
+        # If shortcut doesn't exist yet, create it automatically
+        if not desktop_file.exists():
+            try:
+                desktop_dir.mkdir(parents=True, exist_ok=True)
+                shortcut_content = f"""[Desktop Entry]
+Type=Application
+Name=File Organizer
+Comment=Automated Directory Sorting Utility
+Exec={exec_path}
+Icon=folder-download
+Terminal=false
+Categories=Utility;System;
+Keywords=file;organizer;sort;
+StartupNotify=true
+"""
+                desktop_file.write_text(shortcut_content)
+                subprocess.run(["update-desktop-database", str(desktop_dir)], capture_output=True)
+            except Exception:
+                pass
+
 
 # Force Clean Light Theme Only
 ctk.set_appearance_mode("Light")
@@ -398,9 +435,13 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         if self.is_running:
             self.watcher.stop()
         self.destroy()
+    
+    
 
 
 if __name__ == "__main__":
+    setup_linux_desktop_shortcut()
+
     app = CrossPlatformFileOrganizer()
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
     app.mainloop()
