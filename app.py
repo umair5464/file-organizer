@@ -45,9 +45,17 @@ CATEGORY_INFO = {
     }
 }
 
-def open_native_folder_picker(initial_dir):
-    """Detects OS and launches native folder picker (Zenity for Linux, WinExplorer for Windows)."""
+def open_native_folder_picker(initial_dir, parent_window=None):
+    """Detects OS and launches native folder picker with PyInstaller environment cleanup."""
     if sys.platform.startswith("linux"):
+        # Clean PyInstaller LD_LIBRARY_PATH so Zenity uses Fedora's native GTK libraries
+        clean_env = os.environ.copy()
+        if "LD_LIBRARY_PATH_ORIG" in clean_env:
+            clean_env["LD_LIBRARY_PATH"] = clean_env["LD_LIBRARY_PATH_ORIG"]
+        else:
+            clean_env.pop("LD_LIBRARY_PATH", None)
+
+        # 1. Try Zenity with cleaned system environment
         try:
             cmd = [
                 "zenity", 
@@ -56,20 +64,25 @@ def open_native_folder_picker(initial_dir):
                 f"--filename={initial_dir}/",
                 "--title=Select Target Folder"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
+            result = subprocess.run(cmd, capture_output=True, text=True, env=clean_env)
+            if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
+        except Exception:
+            pass
+
+        # 2. Tkinter fallback (attached directly to parent window for Wayland/GNOME focus)
+        try:
+            chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
+            return chosen if chosen else None
+        except Exception:
             return None
-        except FileNotFoundError:
-            return filedialog.askdirectory(initialdir=initial_dir)
     else:
-        # Windows / macOS Native File Explorer Dialog
-        chosen = filedialog.askdirectory(initialdir=initial_dir)
+        # Windows / macOS Native Dialog
+        chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
         return chosen if chosen else None
 
 
 class AnimatedRectangleTick(ctk.CTkButton):
-    """Custom Rectangular Checkbox with spring scale animation."""
     def __init__(self, parent, is_checked=True, command=None, **kwargs):
         self.is_checked = is_checked
         self.custom_command = command
@@ -91,7 +104,7 @@ class AnimatedRectangleTick(ctk.CTkButton):
         if self.is_checked:
             self.configure(
                 text="✔",
-                fg_color="#26A269",        # Vibrant Green
+                fg_color="#26A269",
                 border_color="#26A269",
                 hover_color="#1F8354",
                 text_color="#FFFFFF"
@@ -99,25 +112,20 @@ class AnimatedRectangleTick(ctk.CTkButton):
         else:
             self.configure(
                 text="",
-                fg_color="#FFFFFF",        # Empty White Box
-                border_color="#B0B0B0",    # Clean Grey Border
+                fg_color="#FFFFFF",
+                border_color="#B0B0B0",
                 hover_color="#EAEAEA",
                 text_color="#FFFFFF"
             )
 
     def animate_toggle(self):
-        """Micro scale animation when toggling the rectangle."""
         self.is_checked = not self.is_checked
-        
-        # Step 1: Shrink box
         self.configure(width=20, height=20)
         
-        # Step 2: Swap state & spring outward
         def step_two():
             self.update_appearance()
             self.configure(width=26, height=26)
             
-            # Step 3: Settle at normal size
             def step_three():
                 self.configure(width=24, height=24)
                 if self.custom_command:
@@ -129,7 +137,6 @@ class AnimatedRectangleTick(ctk.CTkButton):
 
 
 class CategoryItemRow(ctk.CTkFrame):
-    """Spacious Category Card containing rectangle tick, title, and far-right info circle."""
     def __init__(self, parent, key, info_callback, **kwargs):
         super().__init__(
             parent, 
@@ -148,7 +155,6 @@ class CategoryItemRow(ctk.CTkFrame):
             "title": key, "desc": "Categorized files", "exts": "Supported extensions"
         })
 
-        # 1. Animated Rectangular Tick
         self.tick = AnimatedRectangleTick(
             self, 
             is_checked=True, 
@@ -156,7 +162,6 @@ class CategoryItemRow(ctk.CTkFrame):
         )
         self.tick.pack(side="left", padx=(14, 10), pady=10)
 
-        # 2. Category Title
         self.label = ctk.CTkLabel(
             self, 
             text=self.info_data["title"], 
@@ -165,7 +170,6 @@ class CategoryItemRow(ctk.CTkFrame):
         )
         self.label.pack(side="left", padx=4, pady=10)
 
-        # 3. Info Circle Button (ⓘ)
         self.info_btn = ctk.CTkButton(
             self,
             text="ⓘ",
@@ -188,7 +192,6 @@ class CrossPlatformFileOrganizer(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # --- Standard Half-Screen Default Sizing ---
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
         
@@ -203,13 +206,11 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         self.resizable(True, True)
         self.configure(fg_color="#F6F5F4")
 
-        # Path & Watcher State (Path.home() works on both Windows and Linux)
         self.selected_path = str(Path.home() / "Downloads")
         self.watcher = FolderWatcher(self.selected_path)
         self.is_running = False
         self.category_rows = {}
 
-        # --- Top Header Bar ---
         self.header_bar = ctk.CTkFrame(self, corner_radius=0, height=48, fg_color="#FFFFFF", border_width=1, border_color="#E1E1E0")
         self.header_bar.pack(fill="x", side="top")
 
@@ -234,11 +235,9 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         )
         self.status_badge.pack(side="right", padx=22, pady=12)
 
-        # --- Main Form Container ---
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True, padx=24, pady=18)
 
-        # --- 1. Target Directory Section ---
         self.folder_group = ctk.CTkFrame(self.main_container, corner_radius=10, border_width=1, border_color="#E1E1E0", fg_color="#FFFFFF")
         self.folder_group.pack(fill="x", pady=(0, 16))
 
@@ -277,7 +276,6 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         )
         self.browse_btn.pack(side="right")
 
-        # --- 2. Organization Rules Section ---
         self.rules_group = ctk.CTkFrame(self.main_container, corner_radius=10, border_width=1, border_color="#E1E1E0", fg_color="#FFFFFF")
         self.rules_group.pack(fill="both", expand=True, pady=(0, 16))
 
@@ -289,7 +287,6 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         )
         self.rules_title.pack(anchor="w", padx=18, pady=(12, 8))
 
-        # Grid Container for Categories
         self.grid_container = ctk.CTkFrame(self.rules_group, fg_color="transparent")
         self.grid_container.pack(fill="x", padx=14, pady=(0, 8))
 
@@ -311,7 +308,6 @@ class CrossPlatformFileOrganizer(ctk.CTk):
             item_row.grid(row=row, column=col, sticky="ew", padx=6, pady=6)
             self.category_rows[key] = item_row
 
-        # --- Dynamic Info Banner Box ---
         self.info_banner = ctk.CTkFrame(self.rules_group, corner_radius=8, fg_color="#F0F0EF", border_width=1, border_color="#E0E0DF")
         self.info_banner.pack(fill="x", padx=18, pady=(6, 12))
 
@@ -325,7 +321,6 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         )
         self.info_text.pack(fill="x", padx=14, pady=10)
 
-        # --- 3. Bottom Action Buttons ---
         self.footer_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.footer_frame.pack(fill="x", padx=24, pady=(0, 18))
 
@@ -360,7 +355,7 @@ class CrossPlatformFileOrganizer(ctk.CTk):
 
     def browse_folder(self):
         current = self.path_entry.get().strip() or str(Path.home())
-        chosen_dir = open_native_folder_picker(current)
+        chosen_dir = open_native_folder_picker(current, parent_window=self)
         if chosen_dir:
             self.path_entry.delete(0, "end")
             self.path_entry.insert(0, chosen_dir)
