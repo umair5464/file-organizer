@@ -3,8 +3,12 @@ name: Build Cross-Platform App Executables
 on:
   push:
     tags:
-      - 'v*' # Trigger tab hoga jab aap v1.0.0 jaisa tag push karenge
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+      - 'v*'
+  workflow_dispatch:
+
+# Give GitHub Actions permission to write and create Releases
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -23,7 +27,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Project Dependencies
+      # Install Linux GUI dependencies on cloud server
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install watchdog customtkinter pyinstaller
