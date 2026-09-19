@@ -46,8 +46,9 @@ CATEGORY_INFO = {
 }
 
 def open_native_folder_picker(initial_dir):
-    """Detects OS and launches native folder picker (Zenity for Linux, WinExplorer for Windows)."""
+    """Detects OS and launches native folder picker with zero-dependency fallback."""
     if sys.platform.startswith("linux"):
+        # 1. Try Zenity if available on user's system
         try:
             cmd = [
                 "zenity", 
@@ -57,13 +58,16 @@ def open_native_folder_picker(initial_dir):
                 "--title=Select Target Folder"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
+            if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
-            return None
-        except FileNotFoundError:
-            return filedialog.askdirectory(initialdir=initial_dir)
+        except Exception:
+            pass  # Fail quietly and move to fallback
+        
+        # 2. Zero-dependency fallback (Works on every Linux without extra installs)
+        chosen = filedialog.askdirectory(initialdir=initial_dir)
+        return chosen if chosen else None
     else:
-        # Windows / macOS Native File Explorer Dialog
+        # Windows / macOS Native Dialog
         chosen = filedialog.askdirectory(initialdir=initial_dir)
         return chosen if chosen else None
 
