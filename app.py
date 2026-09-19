@@ -46,16 +46,15 @@ CATEGORY_INFO = {
 }
 
 def open_native_folder_picker(initial_dir, parent_window=None):
-    """Detects OS and launches native folder picker with PyInstaller environment cleanup."""
+    """Launches native folder picker. Correctly handles user cancellation without fallback popup."""
     if sys.platform.startswith("linux"):
-        # Clean PyInstaller LD_LIBRARY_PATH so Zenity uses Fedora's native GTK libraries
+        # Clean PyInstaller LD_LIBRARY_PATH environment
         clean_env = os.environ.copy()
         if "LD_LIBRARY_PATH_ORIG" in clean_env:
             clean_env["LD_LIBRARY_PATH"] = clean_env["LD_LIBRARY_PATH_ORIG"]
         else:
             clean_env.pop("LD_LIBRARY_PATH", None)
 
-        # 1. Try Zenity with cleaned system environment
         try:
             cmd = [
                 "zenity", 
@@ -65,15 +64,21 @@ def open_native_folder_picker(initial_dir, parent_window=None):
                 "--title=Select Target Folder"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, env=clean_env)
+            
+            # If user selected a directory and clicked OK
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
-        except Exception:
-            pass
+            
+            # If user clicked Cancel or closed Zenity window, return None cleanly
+            return None
 
-        # 2. Tkinter fallback (attached directly to parent window for Wayland/GNOME focus)
-        try:
-            chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
-            return chosen if chosen else None
+        except FileNotFoundError:
+            # Zenity is not installed at all -> use Tkinter fallback
+            try:
+                chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
+                return chosen if chosen else None
+            except Exception:
+                return None
         except Exception:
             return None
     else:
