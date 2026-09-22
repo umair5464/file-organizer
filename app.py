@@ -6,49 +6,11 @@ from tkinter import filedialog
 from pathlib import Path
 from watcher import FolderWatcher
 from organizer_core import EXTENSION_MAP, organize_directory
-import os
-import sys
-import subprocess
-from pathlib import Path
 
-def setup_linux_desktop_shortcut():
-    """Automatically registers the application in Linux Start Menu on first launch."""
-    if sys.platform.startswith("linux"):
-        desktop_dir = Path.home() / ".local" / "share" / "applications"
-        desktop_file = desktop_dir / "file-organizer.desktop"
-
-        # Check if running as PyInstaller standalone binary
-        if getattr(sys, 'frozen', False):
-            exec_path = os.path.abspath(sys.executable)
-        else:
-            exec_path = os.path.abspath(__file__)
-
-        # If shortcut doesn't exist yet, create it automatically
-        if not desktop_file.exists():
-            try:
-                desktop_dir.mkdir(parents=True, exist_ok=True)
-                shortcut_content = f"""[Desktop Entry]
-Type=Application
-Name=File Organizer
-Comment=Automated Directory Sorting Utility
-Exec={exec_path}
-Icon=folder-download
-Terminal=false
-Categories=Utility;System;
-Keywords=file;organizer;sort;
-StartupNotify=true
-"""
-                desktop_file.write_text(shortcut_content)
-                subprocess.run(["update-desktop-database", str(desktop_dir)], capture_output=True)
-            except Exception:
-                pass
-
-
-# Force Clean Light Theme Only
+# Force Light Theme
 ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
 
-# Category Descriptions and File Extensions
 CATEGORY_INFO = {
     "Videos": {
         "title": "Videos & Clips",
@@ -82,10 +44,53 @@ CATEGORY_INFO = {
     }
 }
 
-def open_native_folder_picker(initial_dir, parent_window=None):
-    """Launches native folder picker. Correctly handles user cancellation without fallback popup."""
+def setup_linux_desktop_shortcut():
+    """Linux-only auto-registration in Start Menu."""
     if sys.platform.startswith("linux"):
-        # Clean PyInstaller LD_LIBRARY_PATH environment
+        desktop_dir = Path.home() / ".local" / "share" / "applications"
+        desktop_file = desktop_dir / "file-organizer.desktop"
+
+        if getattr(sys, 'frozen', False):
+            exec_path = os.path.abspath(sys.executable)
+        else:
+            exec_path = os.path.abspath(__file__)
+
+        if not desktop_file.exists():
+            try:
+                desktop_dir.mkdir(parents=True, exist_ok=True)
+                shortcut_content = f"""[Desktop Entry]
+Type=Application
+Name=File Organizer
+Comment=Automated Directory Sorting Utility
+Exec={exec_path}
+Icon=folder-download
+Terminal=false
+Categories=Utility;System;
+Keywords=file;organizer;sort;
+StartupNotify=true
+"""
+                desktop_file.write_text(shortcut_content)
+                subprocess.run(["update-desktop-database", str(desktop_dir)], capture_output=True)
+            except Exception:
+                pass
+
+
+def open_native_folder_picker(initial_dir, parent_window=None):
+    """Clean OS-isolated folder picker for Windows and Linux."""
+    # 1. Windows Native Picker
+    if sys.platform.startswith("win32"):
+        try:
+            chosen = filedialog.askdirectory(
+                parent=parent_window, 
+                initialdir=initial_dir, 
+                title="Select Target Folder"
+            )
+            return chosen if chosen else None
+        except Exception:
+            return None
+
+    # 2. Linux Native Picker with Zenity / Tkinter Fallback
+    elif sys.platform.startswith("linux"):
         clean_env = os.environ.copy()
         if "LD_LIBRARY_PATH_ORIG" in clean_env:
             clean_env["LD_LIBRARY_PATH"] = clean_env["LD_LIBRARY_PATH_ORIG"]
@@ -101,25 +106,17 @@ def open_native_folder_picker(initial_dir, parent_window=None):
                 "--title=Select Target Folder"
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, env=clean_env)
-            
-            # If user selected a directory and clicked OK
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
-            
-            # If user clicked Cancel or closed Zenity window, return None cleanly
             return None
-
         except FileNotFoundError:
-            # Zenity is not installed at all -> use Tkinter fallback
-            try:
-                chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
-                return chosen if chosen else None
-            except Exception:
-                return None
+            chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
+            return chosen if chosen else None
         except Exception:
             return None
+
+    # 3. macOS / Generic Fallback
     else:
-        # Windows / macOS Native Dialog
         chosen = filedialog.askdirectory(parent=parent_window, initialdir=initial_dir, title="Select Target Folder")
         return chosen if chosen else None
 
@@ -435,8 +432,6 @@ class CrossPlatformFileOrganizer(ctk.CTk):
         if self.is_running:
             self.watcher.stop()
         self.destroy()
-    
-    
 
 
 if __name__ == "__main__":
